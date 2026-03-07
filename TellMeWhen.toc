@@ -1,0 +1,12 @@
+# Originally by Nephthys of Hyjal
+# Remade by дека
+## Interface: 30300
+## Title: TellMeWhen
+## Version: 3.3.3.5а
+## Author: Unknown
+## Notes: Допомагає налаштувати бафи/дебафи. 
+## OptionalDeps: LibStub, ButtonFacade, Ace3, AceGUI-3.0-SharedMediaWidgets, LibSharedMedia-3.0, LibDataBroker-1.1, OmniCC
+## SavedVariablesPerCharacter: TellMeWhen_Settings
+## X-Embeds: LibStub, Ace3, AceGUI-3.0-SharedMediaWidgets, LibSharedMedia-3.0, LibDataBroker-1.1
+
+TellMeWhen.xml

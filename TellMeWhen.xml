@@ -1,0 +1,717 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+
+	<Script file="Lib\LibStub\LibStub.lua"/>
+	<Include file="Lib\CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
+	<Include file="Lib\AceGUI-3.0\AceGUI-3.0.xml"/>
+	<Include file="Lib\LibSharedMedia-3.0\lib.xml"/>
+	<Include file="Lib\AceGUI-3.0-SharedMediaWidgets\widget.xml"/>
+	<Include file="Lib\AceConfig-3.0\AceConfig-3.0.xml"/>
+	<Include file="Lib\AceLocale-3.0\AceLocale-3.0.xml"/>
+	<Script file="Lib\libdatabroker-1-1\LibDataBroker-1.1.lua"/>
+	
+	<Script file="Localization\TellMeWhen-enUS.lua"/>
+	<Script file="Localization\TellMeWhen-ruRU.lua"/>
+	
+	<Script file="TellMeWhen.lua"/>
+	<Script file="TellMeWhen_options.lua"/>
+
+	<Frame name="TellMeWhen_EquivDropdown" inherits="UIDropDownMenuTemplate">
+		<Anchors>
+			<Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+				<Offset>
+					<AbsDimension x="100" y="-50"/>
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Scripts>
+			<OnLoad>self:Hide()</OnLoad> 
+		</Scripts>
+	</Frame>
+	
+	<Frame name="TellMeWhen_GroupTemplate" enableMouse="false" toplevel="true" movable="true" parent="UIParent" virtual="true">
+		<Size>
+			<AbsDimension x="1" y="1"/>
+		</Size>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture setAllPoints="true">
+					<Color r="0" g="0" b="0" a="0"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parent_ResizeButton" frameStrata="HIGH">
+				<Size>
+					<AbsDimension x="10" y="10"/>
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT"/>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture name="$parentTexture" file="Interface\AddOns\TellMeWhen\Textures\Resize">
+							<Size>
+								<AbsDimension x="10" y="10"/>
+							</Size>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnLoad>
+						local texture = _G[self:GetName().."Texture"];
+						texture:SetVertexColor(0.6, 0.6, 0.6);
+					</OnLoad>
+					<OnMouseDown>
+						TellMeWhen_StartSizing(self, button);
+					</OnMouseDown>
+					<OnMouseUp>
+						TellMeWhen_StopSizing(self, button);
+					</OnMouseUp>
+					<OnEnter>
+						TellMeWhen_GUIButton_OnEnter(self, "RESIZE", "RESIZE_TOOLTIP");
+						local texture = getglobal(self:GetName().."Texture");
+						texture:SetVertexColor(1, 1, 1);
+					</OnEnter>
+					<OnLeave>
+						GameTooltip:Hide();
+						local texture = getglobal(self:GetName().."Texture");
+						texture:SetVertexColor(0.6, 0.6, 0.6);
+					</OnLeave>
+				</Scripts>
+			</Button>
+		</Frames>
+	</Frame>
+	<Frame name="TellMeWhen_EquivSelectDropdown" inherits="UIDropDownMenuTemplate">
+		<Scripts>
+			<OnLoad>
+				UIDropDownMenu_SetWidth(self,200);
+				UIDropDownMenu_Initialize(self, TellMeWhen_EquivSelect, "DROPDOWN");				
+			</OnLoad>
+			<OnEnter>
+				TellMeWhen_Equiv_OnEnter(self)
+			</OnEnter>
+			<OnLeave>
+				GameTooltip:Hide();
+			</OnLeave>
+		</Scripts>
+	</Frame>
+	<Button name="TellMeWhen_IconTemplate" virtual="true" enableMouse="true">
+		<Size>
+			<AbsDimension x="30" y="30"/>
+		</Size>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture file="Interface\Buttons\UI-EmptySlot-Disabled">
+					<Size>
+						<AbsDimension x="46" y="46"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture name="$parentIcon" file="Interface\Icons\INV_Misc_QuestionMark">
+					<Size>
+						<AbsDimension x="30" y="30"/>
+					</Size>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString name="$parentCount" inherits="NumberFontNormalSmall" justifyH="RIGHT">
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-2" y="2"/>
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad>
+				self:RegisterForDrag("LeftButton");
+			</OnLoad>
+			<OnEnter>
+				TellMeWhen_Icon_OnEnter(self, motion);
+			</OnEnter>
+			<OnLeave>
+				GameTooltip:Hide();
+			</OnLeave>
+			<OnMouseDown>
+				TellMeWhen_Icon_OnMouseDown(self, button);
+			</OnMouseDown>
+			<OnDragStart>
+				self:GetParent():StartMoving();
+			</OnDragStart>
+			<OnDragStop>
+				TellMeWhen_StopMoving(self, button);
+			</OnDragStop>
+		</Scripts>
+		<Frames>
+			<Cooldown name="$parentCooldown" inherits="CooldownFrameTemplate">
+				<Size x="30" y="30"/>
+				<Anchors>
+					<Anchor point="CENTER">
+						<Offset>
+							<AbsDimension x="0" y="-1"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Cooldown>
+			<Frame name="$parentDropDown" inherits="UIDropDownMenuTemplate" hidden="true">
+				<Anchors>
+					<Anchor point="TOP"/>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						UIDropDownMenu_Initialize(self, TellMeWhen_IconMenu_Initialize, "MENU");
+					</OnLoad>
+					<OnShow>
+						UIDropDownMenu_Initialize(self, TellMeWhen_IconMenu_Initialize, "MENU");
+					</OnShow>
+				</Scripts>
+			</Frame>
+		</Frames>
+		<HighlightTexture alphaMode="ADD" file="Interface\Buttons\ButtonHilight-Square"/>
+	</Button>
+	<CheckButton name="TellMeWhen_ConditionEditorCheck" virtual="true" inherits="UICheckButtonTemplate" text="">
+		<Size>
+			<AbsDimension x="20" y="20" /> 
+		</Size>
+		<Anchors>
+			<Anchor point="TOPLEFT">
+				<Offset x="15" y="-96" /> 
+			</Anchor>
+		</Anchors>
+		<Scripts>
+			<OnClick>TellMeWhen_ConditionCheckboxHandler();</OnClick>
+		</Scripts>
+	</CheckButton>
+	
+	<Frame name="TellMeWhen_ConditionEditorGroup" virtual="true">
+		<Size>
+			<AbsDimension x="610" y="90" /> 
+		</Size>
+		<Anchors>
+			<Anchor point="TOPLEFT">
+				<Offset x="0" y="0" /> 
+			</Anchor>
+		</Anchors>
+		<Frames>
+			<Frame name="$parentType" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="30" y="-60" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						UIDropDownMenu_SetWidth(self,90);
+						UIDropDownMenu_Initialize(self, TellMeWhen_TypeMenu, "DROPDOWN");
+					</OnLoad>
+				</Scripts>
+			</Frame>
+			<Frame name="$parentIcon" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="140" y="-60" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						self:Hide()
+						UIDropDownMenu_SetWidth(self,150);
+						UIDropDownMenu_Initialize(self, TellMeWhen_IconMenu, "DROPDOWN");
+					</OnLoad>
+				</Scripts>
+			</Frame>
+			<Frame name="$parentUnit" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="140" y="-60" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						UIDropDownMenu_SetWidth(self,90);
+						UIDropDownMenu_Initialize(self, TellMeWhen_UnitMenu, "DROPDOWN");
+					</OnLoad>
+				</Scripts>
+			</Frame>
+			<Frame name="$parentOperator" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="250" y="-60" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						UIDropDownMenu_SetWidth(self,150);
+						UIDropDownMenu_Initialize(self, TellMeWhen_OperatorMenu, "DROPDOWN");			
+					</OnLoad>
+				</Scripts>
+			</Frame>
+			<Slider name="$parentSlider" inherits="OptionsSliderTemplate" minvalue="0" maxvalue="100" valuestep="1" defaultvalue="100">
+				<Size x="440" y="17"/>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="50" y="-90" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnMinMaxChanged>
+						local minValue, maxValue = self:GetMinMaxValues()
+						_G[self:GetName() .. "Low"]:SetText(minValue)
+						_G[self:GetName() .. "High"]:SetText(maxValue)
+					</OnMinMaxChanged>
+					<OnValueChanged>
+						TellMeWhen_ConditionPanel_SetValText(self)
+					</OnValueChanged>
+				</Scripts>
+			</Slider>
+			<Frame name="$parentAndOr" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="480" y="-20" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						UIDropDownMenu_SetWidth(self,50);
+						UIDropDownMenu_Initialize(self, TellMeWhen_AndOrMenu, "DROPDOWN");
+					</OnLoad>
+				</Scripts>
+			</Frame>
+			<CheckButton name="$parentCheck" inherits="TellMeWhen_ConditionEditorCheck" text="">
+				<Size>
+					<AbsDimension x="20" y="20" /> 
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeto="$parent">
+						<Offset x="15" y="-50" /> 
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						self:SetParent(self:GetParent():GetParent())				
+					</OnLoad>
+					<OnClick>TellMeWhen_ConditionCheckboxHandler();</OnClick>
+				</Scripts>
+			</CheckButton>
+		</Frames>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString name="$parentValText" inherits="GameFontNormalLarge" text="" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="LEFT" relativePoint="TOPLEFT">
+							<Offset x="445" y="-74" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTextType" inherits="GameFontNormalSmall" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeto="$parentType" relativePoint="TOP">
+							<Offset x="0" y="5" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTextUnitOrIcon" inherits="GameFontNormalSmall" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeto="$parentUnit" relativePoint="TOP">
+							<Offset x="0" y="5" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTextOperator" inherits="GameFontNormalSmall" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeto="$parentOperator" relativePoint="TOP">
+							<Offset x="0" y="5" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTextValue" inherits="GameFontNormalSmall" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset x="445" y="-48" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTextUnitDef" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="CENTER" relativeto="$parentUnit" relativePoint="CENTER">
+							<Offset x="0" y="2" />
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>	
+	</Frame>
+	
+	<Frame name="TellMeWhen_ConditionEditorFrame" parent="UIParent" movable="true" enableMouse="true" >
+		<Size>
+			<AbsDimension x="610" y="340" /> 
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" relativeTo="UIParent">
+				<Offset x="0" y="0" /> 
+			</Anchor>
+		</Anchors>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+			<BackgroundInsets>
+				<AbsInset left="11" right="12" top="12" bottom="11" /> 
+			</BackgroundInsets>
+			<TileSize>
+				<AbsValue val="32" /> 
+			</TileSize>
+			<EdgeSize>
+				<AbsValue val="32" /> 
+			</EdgeSize>
+		</Backdrop>
+		<Frames>
+		
+			<Frame name="TellMeWhen_ConditionEditorGroup1" inherits="TellMeWhen_ConditionEditorGroup" id="1">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="0" y="10" /> 
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>
+						TellMeWhen_ConditionEditorGroup1AndOr:Hide()
+					</OnLoad>
+				</Scripts>
+				<Layers>
+					<Layer level="OVERLAY">
+						<FontString name="TellMeWhen_ConditionEditorFS2" inherits="GameFontNormalSmall" text="" justifyH="CENTER">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset x="500" y="-48" /> 
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+			</Frame>
+			<Button name="$parentCloseButton" inherits="UIPanelCloseButton">
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="TellMeWhen_ConditionEditorFrame" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-22" y="-22" /> 
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>self:SetFrameLevel(self:GetFrameLevel() + 4);</OnLoad> 
+					<OnClick>TellMeWhen_ConditionEditorFrame:Hide()</OnClick> 
+				</Scripts>
+			</Button>
+			<Button name="$parentResetButton" inherits="UIPanelButtonTemplate">
+				<Size>
+					<AbsDimension x="60" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset x="15" y="15" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>TellMeWhen_ConditionEditorResetOnClick()</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentOkayButton" inherits="UIPanelButtonTemplate">
+				<Size>
+					<AbsDimension x="60" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset x="-75" y="15" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>TellMeWhen_ConditionEditorOkayOnClick();TellMeWhen_ConditionEditorFrame:Hide();</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentCancelButton" inherits="UIPanelButtonTemplate" text="">
+				<Size>
+					<AbsDimension x="60" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset x="-15" y="15" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>TellMeWhen_ConditionEditorFrame:Hide()</OnClick>
+				</Scripts>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString name="TellMeWhen_ConditionEditorFS1" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset x="170" y="-15" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="TellMeWhen_ConditionEditorFS2" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset x="500" y="-40" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad> self:RegisterForDrag("LeftButton"); self:Hide(); </OnLoad>
+			<OnDragStart> self:StartMoving(); </OnDragStart>
+			<OnDragStop> self:StopMovingOrSizing(); </OnDragStop>
+		</Scripts>
+	</Frame>
+	
+	<Frame name="TellMeWhen_CopyFrame" parent="UIParent" movable="true" enableMouse="true" >
+		<Size>
+			<AbsDimension x="540" y="340" /> 
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" relativeTo="UIParent">
+				<Offset x="0" y="0" /> 
+			</Anchor>
+		</Anchors>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+			<BackgroundInsets>
+				<AbsInset left="11" right="12" top="12" bottom="11" /> 
+			</BackgroundInsets>
+			<TileSize>
+				<AbsValue val="32" /> 
+			</TileSize>
+			<EdgeSize>
+				<AbsValue val="32" /> 
+			</EdgeSize>
+		</Backdrop>
+		<Frames>
+			<Slider name="$parentGroupSlider" inherits="OptionsSliderTemplate" minvalue="1" maxvalue="8" valuestep="1" defaultvalue="1">
+				<Size x="400" y="17"/>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="95" y="-50" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnMinMaxChanged>
+						local minValue, maxValue = self:GetMinMaxValues()
+						_G[self:GetName() .. "Low"]:SetText(minValue)
+						_G[self:GetName() .. "High"]:SetText(maxValue)
+					</OnMinMaxChanged>
+					<OnValueChanged>
+						TellMeWhen_CopyPanel_Update()
+					</OnValueChanged>
+					<OnLoad>
+						self:SetMinMaxValues(1,TELLMEWHEN_MAXGROUPS)
+					</OnLoad>
+				</Scripts>
+			</Slider>
+			<Slider name="$parentIconSlider" inherits="OptionsSliderTemplate" minvalue="1" maxvalue="49" valuestep="1" defaultvalue="1">
+				<Size x="400" y="17"/>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset x="95" y="-90" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnMinMaxChanged>
+						local minValue, maxValue = self:GetMinMaxValues()
+						_G[self:GetName() .. "Low"]:SetText(minValue)
+						_G[self:GetName() .. "High"]:SetText(maxValue)
+					</OnMinMaxChanged>
+					<OnValueChanged>
+						TellMeWhen_CopyPanel_Update()
+					</OnValueChanged>
+				</Scripts>
+			</Slider>
+			<Button name="$parentCloseButton" inherits="UIPanelCloseButton">
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="$parent" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-22" y="-22" /> 
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>self:SetFrameLevel(self:GetFrameLevel() + 4);</OnLoad> 
+					<OnClick>TellMeWhen_CopyPanel_Cancel() self:GetParent():Hide()</OnClick> 
+				</Scripts>
+			</Button>
+			<Button name="$parentOkayButton" inherits="UIPanelButtonTemplate">
+				<Size>
+					<AbsDimension x="60" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset x="-75" y="15" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>TellMeWhen_CopyPanel_Copy() self:GetParent():Hide()</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentCancelButton" inherits="UIPanelButtonTemplate" text="">
+				<Size>
+					<AbsDimension x="60" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset x="-15" y="15" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>TellMeWhen_CopyPanel_Cancel() self:GetParent():Hide()</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentEnableGroupButton" inherits="GameMenuButtonTemplate">
+				<Size>
+					<AbsDimension x="380" y="30" />
+				</Size>
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="$parentIconSlider" relativePoint="CENTER">
+						<Offset x="0" y="0" />
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad>self:Hide()</OnLoad>
+					<OnClick>TellMeWhen_CopyPanel_Update(1)</OnClick>
+				</Scripts>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentTextureFrom" file="Interface\Icons\INV_Misc_QuestionMark">
+					<Size>
+						<AbsDimension x="50" y="50"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER" relativeTo="$parent" relativePoint="TOPLEFT">
+							<Offset x="170" y="-180" /> 
+						</Anchor>
+					</Anchors>
+				</Texture>
+				<Texture name="$parentTextureTo" file="Interface\Icons\INV_Misc_QuestionMark">
+					<Size>
+						<AbsDimension x="50" y="50"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER" relativeTo="$parent" relativePoint="TOPRIGHT">
+							<Offset x="-170" y="-180" /> 
+						</Anchor>
+					</Anchors>
+				</Texture>
+			</Layer>
+			
+			<Layer level="BACKGROUND">
+				<Texture file="Interface\Buttons\UI-EmptySlot-Disabled">
+					<Size>
+						<AbsDimension x="76" y="76"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER" relativeTo="$parentTextureFrom" relativePoint="CENTER">
+							<Offset x="0" y="0" /> 
+						</Anchor>
+					</Anchors>
+				</Texture>
+				<Texture file="Interface\Buttons\UI-EmptySlot-Disabled">
+					<Size>
+						<AbsDimension x="76" y="76"/>
+					</Size>
+					<Anchors>
+						<Anchor point="CENTER" relativeTo="$parentTextureTo" relativePoint="CENTER">
+							<Offset x="0" y="0" /> 
+						</Anchor>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString name="$parentTitleFS" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOP">
+							<Offset x="0" y="-15" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentGroupFS" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="RIGHT" relativeTo="$parentGroupSlider" relativePoint="LEFT">
+							<Offset x="-10" y="0" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentIconFS" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="RIGHT" relativeTo="$parentIconSlider" relativePoint="LEFT">
+							<Offset x="-10" y="0" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentFromFS" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeTo="$parentTextureFrom" relativePoint="TOP">
+							<Offset x="0" y="20" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentToFS" inherits="GameFontNormalLarge" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeTo="$parentTextureTo" relativePoint="TOP">
+							<Offset x="0" y="20" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentFromNumbersFS" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeTo="$parentTextureFrom" relativePoint="TOP">
+							<Offset x="0" y="7" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentToNumbersFS" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeTo="$parentTextureTo" relativePoint="TOP">
+							<Offset x="0" y="7" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentFromNameFS" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOP" relativeTo="$parentTextureFrom" relativePoint="BOTTOM">
+							<Offset x="0" y="-5" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentToNameFS" inherits="GameFontNormal" text="" justifyH="CENTER">
+					<Anchors>
+						<Anchor point="TOP" relativeTo="$parentTextureTo" relativePoint="BOTTOM">
+							<Offset x="0" y="-5" /> 
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers> 
+		<Scripts>
+			<OnLoad>
+				self:RegisterForDrag("LeftButton");
+				self:Hide();
+			</OnLoad>
+			<OnShow> TellMeWhen_CopyPanel_Update() </OnShow>
+			<OnDragStart> self:StartMoving(); </OnDragStart>
+			<OnDragStop> self:StopMovingOrSizing(); </OnDragStop>
+		</Scripts>
+	</Frame>
+
+</Ui>
+
+
+	
+
