@@ -1307,6 +1307,12 @@ end
 
 local id
 function TellMeWhen_Icon_Buff_OnUpdate(icon, elapsed)
+	icon.updateTimer = icon.updateTimer - elapsed;
+	if ( icon.updateTimer > 0 ) then
+		return;
+	end
+	icon.updateTimer = TellMeWhen_Settings["Interval"];
+
 	local reaction
 	if not (icon.UnitReact == 0) then
 		reaction = Reaction(icon.Unit);
@@ -1567,7 +1573,15 @@ function TellMeWhen_Icon_WpnEnchant_OnUpdate(icon, elapsed)
 	end
 end
 
-function TellMeWhen_Icon_Totem_OnUpdate(icon, event, ...)
+function TellMeWhen_Icon_Totem_OnUpdate(icon, elapsed)
+	if elapsed then
+		icon.updateTimer = icon.updateTimer - elapsed;
+		if ( icon.updateTimer > 0 ) then
+			return;
+		end
+	end
+	icon.updateTimer = TellMeWhen_Settings["Interval"];
+
 	local foundTotem = false
 	for iSlot=1, 4 do
 		local _, totemName, startTime, totemDuration, totemIcon = GetTotemInfo(iSlot)
