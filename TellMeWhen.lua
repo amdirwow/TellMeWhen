@@ -14,7 +14,7 @@ end
 
 TellMeWhen = {};
 TELLMEWHEN_VERSION = "3.3.3.5a 2026";
-TELLMEWHEN_MAXOLDGROUPS = 8; 
+TELLMEWHEN_MAXOLDGROUPS = 8;
 TELLMEWHEN_MAXGROUPS = 10;
 TELLMEWHEN_MAXROWS = 7;
 TELLMEWHEN_MAXCONDITIONS = 3;
@@ -34,6 +34,238 @@ local GetPetHappiness, GetEclipseDirection, GetComboPoints = GetPetHappiness, Ge
 local _,pclass = UnitClass("Player")
 local st, co, rc, mc, us, un, pr, ab, defaultSpell
 local defaultSpells,chakra,TMW_CNDT,TMW_OP,TMW_AO = {},{},{},{},{}
+local blacklistevent = 0
+
+local TMW_MSPEC_PREFIX = "MSPEC"
+local TMW_MSPEC_CURRENT = nil
+
+local function TMW_MSPEC_DeepCopy(orig)
+	if type(orig) ~= "table" then
+		return orig
+	end
+	local copy = {}
+	for k, v in pairs(orig) do
+		copy[k] = TMW_MSPEC_DeepCopy(v)
+	end
+	return copy
+end
+
+local function TMW_MSPEC_EnsureSettings()
+	if not TellMeWhen_Settings then return end
+	TellMeWhen_Settings.MultiSpecProfiles = TellMeWhen_Settings.MultiSpecProfiles or {}
+end
+
+local function TMW_MSPEC_CreateEmptyGroups()
+	local groups = {}
+	for groupID = 1, TELLMEWHEN_MAXGROUPS do
+		groups[groupID] = CopyTable(TellMeWhen_Group_Defaults)
+		groups[groupID].Icons = {}
+		for iconID = 1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
+			groups[groupID].Icons[iconID] = CopyTable(TellMeWhen_Icon_Defaults)
+		end
+	end
+	return groups
+end
+
+local function TMW_MSPEC_IsMeaningfulIcon(icon)
+	if type(icon) ~= "table" then return false end
+
+	if icon.Enabled then return true end
+	if icon.Name and icon.Name ~= "" then return true end
+	if icon.Type and icon.Type ~= "" then return true end
+	if icon.OnlyMine or icon.ShowTimer or icon.ShowTimerText == false or icon.ShowPBar or icon.ShowCBar or icon.InvertBars then return true end
+	if icon.RangeCheck or icon.ManaCheck or icon.CooldownCheck then return true end
+	if icon.Unit and icon.Unit ~= "player" then return true end
+	if icon.WpnEnchantType and icon.WpnEnchantType ~= "mainhand" then return true end
+	if icon.UnitReact and icon.UnitReact ~= 0 then return true end
+	if icon.BuffOrDebuff and icon.BuffOrDebuff ~= "HELPFUL" then return true end
+	if icon.BuffShowWhen and icon.BuffShowWhen ~= "present" then return true end
+	if icon.CooldownShowWhen and icon.CooldownShowWhen ~= "usable" then return true end
+	if icon.CooldownType and icon.CooldownType ~= "spell" then return true end
+	if icon.Alpha and icon.Alpha ~= 1 then return true end
+	if icon.UnAlpha and icon.UnAlpha ~= 1 then return true end
+	if icon.StackMin and icon.StackMin ~= 0 then return true end
+	if icon.StackMax and icon.StackMax ~= 1000 then return true end
+	if icon.FakeHidden then return true end
+	if icon.Conditions and next(icon.Conditions) then return true end
+
+	return false
+end
+
+local function TMW_MSPEC_IsMeaningfulGroup(group)
+	if type(group) ~= "table" then return false end
+
+	if group.Enabled then return true end
+	if group.Scale and group.Scale ~= 2.0 then return true end
+	if group.Rows and group.Rows ~= 1 then return true end
+	if group.Columns and group.Columns ~= 4 then return true end
+	if group.OnlyInCombat then return true end
+	if group.PrimarySpec == false or group.SecondarySpec == false then return true end
+	if group.Point and next(group.Point) then return true end
+	if group.Stance and next(group.Stance) then return true end
+	if group.LBF and next(group.LBF) then return true end
+
+	if type(group.Icons) == "table" then
+		for _, icon in pairs(group.Icons) do
+			if TMW_MSPEC_IsMeaningfulIcon(icon) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+local function TMW_MSPEC_BuildSparseGroups(sourceGroups)
+	if type(sourceGroups) ~= "table" then
+		return {}
+	end
+
+	local sparse = {}
+
+	for groupID = 1, TELLMEWHEN_MAXGROUPS do
+		local group = sourceGroups[groupID]
+		if TMW_MSPEC_IsMeaningfulGroup(group) then
+			local savedGroup = {}
+
+			for k, v in pairs(group) do
+				if k ~= "Icons" then
+					savedGroup[k] = TMW_MSPEC_DeepCopy(v)
+				end
+			end
+
+			savedGroup.Icons = {}
+
+			if type(group.Icons) == "table" then
+				for iconID = 1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
+					local icon = group.Icons[iconID]
+					if TMW_MSPEC_IsMeaningfulIcon(icon) then
+						savedGroup.Icons[iconID] = TMW_MSPEC_DeepCopy(icon)
+					end
+				end
+			end
+
+			sparse[groupID] = savedGroup
+		end
+	end
+
+	return sparse
+end
+
+local function TMW_MSPEC_ExpandSparseGroups(savedGroups)
+	local groups = TMW_MSPEC_CreateEmptyGroups()
+
+	if type(savedGroups) ~= "table" then
+		return groups
+	end
+
+	for groupID = 1, TELLMEWHEN_MAXGROUPS do
+		local savedGroup = savedGroups[groupID]
+		if type(savedGroup) == "table" then
+			for k, v in pairs(savedGroup) do
+				if k ~= "Icons" then
+					groups[groupID][k] = TMW_MSPEC_DeepCopy(v)
+				end
+			end
+
+			if type(savedGroup.Icons) == "table" then
+				for iconID = 1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
+					if savedGroup.Icons[iconID] then
+						groups[groupID].Icons[iconID] = TMW_MSPEC_DeepCopy(savedGroup.Icons[iconID])
+					end
+				end
+			end
+		end
+	end
+
+	return groups
+end
+
+local function TMW_MSPEC_SaveProfile(specId)
+	if not specId or not TellMeWhen_Settings or not TellMeWhen_Settings.Groups then
+		return
+	end
+
+	TMW_MSPEC_EnsureSettings()
+	TellMeWhen_Settings.MultiSpecProfiles[specId] = TMW_MSPEC_BuildSparseGroups(TellMeWhen_Settings.Groups)
+end
+
+local function TMW_MSPEC_SetCurrent(specId)
+	TMW_MSPEC_CURRENT = tonumber(specId)
+	if TellMeWhen_Settings then
+		TellMeWhen_Settings.MultiSpecActiveProfile = TMW_MSPEC_CURRENT
+	end
+end
+
+local function TMW_MSPEC_ActivateProfile(specId)
+	specId = tonumber(specId)
+	if not specId or not TellMeWhen_Settings then
+		return
+	end
+
+	TMW_MSPEC_EnsureSettings()
+
+	if TMW_MSPEC_CURRENT == specId then
+		TMW_MSPEC_SetCurrent(specId)
+		return
+	end
+
+	local previous = TMW_MSPEC_CURRENT or TellMeWhen_Settings.MultiSpecActiveProfile
+
+	if previous and previous ~= specId then
+		TMW_MSPEC_SaveProfile(previous)
+	end
+
+	if not TMW_MSPEC_CURRENT then
+		if TellMeWhen_Settings.MultiSpecActiveProfile == specId then
+			TMW_MSPEC_SetCurrent(specId)
+			return
+		end
+
+		if TellMeWhen_Settings.MultiSpecProfiles[specId] then
+			TellMeWhen_Settings.Groups = TMW_MSPEC_ExpandSparseGroups(TellMeWhen_Settings.MultiSpecProfiles[specId])
+			TMW_MSPEC_SetCurrent(specId)
+			TellMeWhen_Update()
+			return
+		end
+
+		if not previous then
+			TMW_MSPEC_SetCurrent(specId)
+			return
+		end
+	end
+
+	if TellMeWhen_Settings.MultiSpecProfiles[specId] then
+		TellMeWhen_Settings.Groups = TMW_MSPEC_ExpandSparseGroups(TellMeWhen_Settings.MultiSpecProfiles[specId])
+	else
+		TellMeWhen_Settings.Groups = TMW_MSPEC_CreateEmptyGroups()
+	end
+
+	TMW_MSPEC_SetCurrent(specId)
+	TellMeWhen_Update()
+end
+
+local function TMW_MSPEC_HandleMessage(msg)
+	if not msg or msg == "" then return end
+
+	if msg:find("^DATA|") then
+		local parts = { strsplit("|", msg) }
+		local activeId = tonumber(parts[2])
+		if activeId then
+			TMW_MSPEC_ActivateProfile(activeId)
+		end
+		return
+	end
+
+	if msg:find("^CAST_COMPLETE|") then
+		local parts = { strsplit("|", msg) }
+		local newSpecId = tonumber(parts[2])
+		if newSpecId then
+			TMW_MSPEC_ActivateProfile(newSpecId)
+		end
+		return
+	end
+end
 
 
 TellMeWhen_Icon_Defaults = {
@@ -48,7 +280,7 @@ TellMeWhen_Icon_Defaults = {
 	ShowTimerText		= true,
 	ShowPBar			= false,
 	ShowCBar			= false,
-	InvertBars			= false, 
+	InvertBars			= false,
 	Type				= "",
 	Unit				= "player",
 	WpnEnchantType		= "mainhand",
@@ -94,7 +326,8 @@ TellMeWhen_Defaults = {
 	Texture			=	"Interface\\TargetingFrame\\UI-StatusBar",
 	TextureName 	= 	"Blizzard",
 	DrawEdge		=	false,
-	TESTON 			= 	false;
+	TESTON 			= 	false,
+	MultiSpecProfiles = {},
 };
 
 TMW_BE = {
@@ -104,7 +337,7 @@ TMW_BE = {
 		["StunnedOrIncapacitated"] = "1833;408;91800;5211;9005;22570;19577;56626;44572;82691;853;2812;64044;20549;46968;30283;20252;65929;7922;12809;50519;1776;20066;49203",
 		["Stunned"] = "1833;408;91800;5211;9005;22570;19577;56626;44572;82691;853;2812;64044;20549;46968;30283;20252;65929;7922;12809;50519",
 		["Disoriented"] = "19503;31661;2094;90337;51514",
-		["Silenced"] = "47476;78675;34490;55021;18469;31935;15487;1330;19647;18498;25046;80483;50613;28730", -- 69179 BE WARRIOR ARCANE TORRENT FOR 
+		["Silenced"] = "47476;78675;34490;55021;18469;31935;15487;1330;19647;18498;25046;80483;50613;28730",
 		["Disarmed"] = "51722;676;64058;50541;91644",
 		["Rooted"] = "122;23694;58373;64695;19185;64803;4167;54706;50245;90327;16979;83301;83302",
 		["PhysicalDmgTaken"] = "30070;58683;81326;50518;55749",
@@ -141,10 +374,6 @@ TMW_BE = {
 	},
 };
 
--- ---------------
--- EXECUTIVE FRAME
--- ---------------
-
 function TellMeWhen_OnEvent(self, event,...)
 	if ( event == 'VARIABLES_LOADED' ) then
 		TellMeWhen_VarsLoaded()
@@ -152,16 +381,20 @@ function TellMeWhen_OnEvent(self, event,...)
 		self:RegisterEvent("PLAYER_TALENT_UPDATE");
 		self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED");
 		self:RegisterEvent("LEARNED_SPELL_IN_TAB");
+		self:RegisterEvent("CHAT_MSG_ADDON");
 		TellMeWhen_Update();
 	elseif ( event == "PLAYER_TALENT_UPDATE") then
 		TellMeWhen_Update();
 		blacklistevent = GetTime()
 	elseif ( event == "LEARNED_SPELL_IN_TAB") then
-		if GetTime() > blacklistevent+1 then
+		if GetTime() > (blacklistevent or 0) + 1 then
 			TellMeWhen_Update();
 		end
-	--elseif ( event == "PET_BAR_UPDATE" ) then
-	--	TellMeWhen_PetEvent()
+	elseif ( event == "CHAT_MSG_ADDON" ) then
+		local prefix, msg = ...
+		if prefix == TMW_MSPEC_PREFIX then
+			TMW_MSPEC_HandleMessage(msg)
+		end
 	end
 end
 
@@ -172,7 +405,6 @@ function TellMeWhen_VarsLoaded()
 	if TellMeWhen_Settings then
 		TELLMEWHEN_MAXCONDITIONS = TellMeWhen_Settings["NumCondits"] or TELLMEWHEN_MAXCONDITIONS
 		TELLMEWHEN_ICONSPACING = TellMeWhen_Settings["Spacing"] or TELLMEWHEN_ICONSPACING
-	--	TELLMEWHEN_MAXGROUPS = TellMeWhen_Settings["NumGroups"] or TELLMEWHEN_MAXGROUPS
 	end
 	for iconID = 1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
 		TellMeWhen_Group_Defaults["Icons"][iconID] = TellMeWhen_Icon_Defaults;
@@ -188,9 +420,12 @@ function TellMeWhen_VarsLoaded()
 		TellMeWhen_Settings = CopyTable(TellMeWhen_Defaults);
 		TellMeWhen_Settings["Groups"][1]["Enabled"] = true;
 	elseif ( TellMeWhen_Settings["Version"] < TELLMEWHEN_VERSION ) then
-	
 		TellMeWhen_SafeUpgrade();
 	end
+
+	TMW_MSPEC_EnsureSettings()
+	TMW_MSPEC_CURRENT = TellMeWhen_Settings.MultiSpecActiveProfile
+
 	if LBF then
 		LBF:RegisterSkinCallback("TellMeWhen111", TellMeWhen_SkinCallback, self);
 	end
@@ -206,7 +441,7 @@ function TellMeWhen_SafeUpgrade()
 		TellMeWhen_Settings["Groups"][1]["Enabled"] = true;
 		TellMeWhen_Settings["Version"] = TELLMEWHEN_VERSION;
 	elseif (TellMeWhen_Settings["Version"] < "1.2.0") then
-	TellMeWhen_Settings = TellMeWhen_AddNewSettings(TellMeWhen_Settings, TellMeWhen_Defaults);
+		TellMeWhen_Settings = TellMeWhen_AddNewSettings(TellMeWhen_Settings, TellMeWhen_Defaults);
 		for groupID = 1, TELLMEWHEN_MAXOLDGROUPS do
 			if (groupID < 5) then
 				oldgroupSettings = TellMeWhen_Settings["Spec"][1]["Groups"][groupID];
@@ -247,9 +482,9 @@ function TellMeWhen_SafeUpgrade()
 				end
 			end
 		end
-		TellMeWhen_Settings["Spec"] = nil;  -- Remove "Spec" {}
+		TellMeWhen_Settings["Spec"] = nil;
 	end
-	
+
 	if (TellMeWhen_Settings["Version"] < "1.3.0") then
 		TellMeWhen_Settings["Texture"] = "Interface\\TargetingFrame\\UI-StatusBar";
 		TellMeWhen_Settings["TextureName"] = "Blizzard";
@@ -350,7 +585,7 @@ function TellMeWhen_SafeUpgrade()
 		for groupID = 1, TELLMEWHEN_MAXGROUPS do
 			TellMeWhen_Settings["Groups"][groupID]["LBF"] = TellMeWhen_Settings["Groups"][groupID]["LBF"] or {}
 			for iconID = 1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
-				TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimerText"] = TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimerText"] or TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimer"]; --Inherit this
+				TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimerText"] = TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimerText"] or TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["ShowTimer"];
 				TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["Conditions"] = TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["Conditions"] or {}
 				for k,v in pairs(TellMeWhen_Settings["Groups"][groupID]["Icons"][iconID]["Conditions"]) do
 					v.ConditionLevel = tonumber(v.ConditionLevel) or 0
@@ -361,9 +596,8 @@ function TellMeWhen_SafeUpgrade()
 				end
 			end
 		end
-		
+
 		TellMeWhen_Settings["NumCondits"] = TELLMEWHEN_MAXCONDITIONS
-	--	TellMeWhen_Settings["NumGroups"] = TELLMEWHEN_MAXGROUPS
 		if needtowarn then
 			StaticPopup_Show("TELLMEWHEN_HPSS_WARN")
 		end
@@ -379,15 +613,15 @@ function TellMeWhen_SafeUpgrade()
 						end
 					end
 					if not isgood then
-						DEFAULT_CHAT_FRAME:AddMessage(format("TellMeWhen: Group %d, Icon %d had the unit to check for its conditions modified. You may wish to verify that the change is correct",groupID,iconID))--not worth localizing
+						DEFAULT_CHAT_FRAME:AddMessage(format("TellMeWhen: Group %d, Icon %d had the unit to check for its conditions modified. You may wish to verify that the change is correct",groupID,iconID))
 						v.ConditionUnit = "player"
 					end
 				end
 			end
-		end				
+		end
 	end
-	
-	--All Upgrades Complete
+
+	TellMeWhen_Settings.MultiSpecProfiles = TellMeWhen_Settings.MultiSpecProfiles or {}
 	TellMeWhen_Settings["Version"] = TELLMEWHEN_VERSION;
 end
 
@@ -443,41 +677,35 @@ end
 do
 	local ver = select(4, GetBuildInfo());
 	defaultSpells = {
-		ROGUE=1752, -- sinister strike
-		PRIEST=139, -- renew
-		DRUID=774, -- rejuvenation
-		WARRIOR=772, -- rend
-		MAGE=133, -- fireball
-		WARLOCK=687, -- demon armor
-		PALADIN=20154, -- seal of righteousness
-		SHAMAN=324, -- lightning shield
-		HUNTER=1978, -- serpent sting
-		DEATHKNIGHT=45462, -- plague strike
+		ROGUE=1752,
+		PRIEST=139,
+		DRUID=774,
+		WARRIOR=772,
+		MAGE=133,
+		WARLOCK=687,
+		PALADIN=20154,
+		SHAMAN=324,
+		HUNTER=1978,
+		DEATHKNIGHT=45462,
 	}
-	
-	defaultSpell = defaultSpells[pclass] -- a much nicer way than indexing a table on every GetGCD() call
+
+	defaultSpell = defaultSpells[pclass]
 	chakra = {
-		{abid = 88685, buffid = 81206}, 	-- sanctuary, prayer of healing,mending
-		{abid = 88684, buffid = 81208},		-- serenity, heal
-		{abid = 88682, buffid = 81207},		-- aspire, renew
+		{abid = 88685, buffid = 81206},
+		{abid = 88684, buffid = 81208},
+		{abid = 88682, buffid = 81207},
 	}
-	
-	--insert spells with duplicate spell names here
+
 	TellMeWhen_DSN = {};
-	TellMeWhen_DSN[16511] = true;	--hemo
-	TellMeWhen_DSN[89775] = true;	-- glyph of hemo bleed
-	
+	TellMeWhen_DSN[16511] = true;
+	TellMeWhen_DSN[89775] = true;
+
 	local executiveFrame = CreateFrame("Frame", "TellMeWhen_ExecutiveFrame");
 	executiveFrame:SetScript("OnEvent", TellMeWhen_OnEvent);
 	executiveFrame:RegisterEvent("VARIABLES_LOADED");
 	executiveFrame:RegisterEvent("PLAYER_LOGIN");
 	executiveFrame:RegisterEvent("PLAYER_ENTERING_WORLD");
 end
-
-
--- -----------
--- GROUP FRAME
--- -----------
 
 local function TellMeWhen_Stance_Check(group)
 	if not group.correctspec then
@@ -486,13 +714,13 @@ local function TellMeWhen_Stance_Check(group)
 	local groupID = group:GetID()
 	local index = GetShapeshiftForm()
 
-	if pclass == "WARLOCK" and index == 2 then  --UGLY HACK FOR METAMORPHOSIS, IT IS INDEX 2 FOR SOME REASON
+	if pclass == "WARLOCK" and index == 2 then
 		index = 1
 	end
-	if pclass == "ROGUE" and index >= 2 then	--UGLY FIX FOR ROGUES, VANISH AND SHADOW DANCE RETURN 3...
-		index = 1							--WHEN ACTIVE, VANISH RETURNS 2 WHEN SHADOW DANCE ISNT LEARNED.
+	if pclass == "ROGUE" and index >= 2 then
+		index = 1
 	end
-	if index > GetNumShapeshiftForms() then --MANY CLASSES RETURN AN INVALID NUMBER ON LOGIN, BUT NOT ANYMORE!
+	if index > GetNumShapeshiftForms() then
 		index = 0
 	end
 	if index == 0 then
@@ -559,15 +787,19 @@ function TellMeWhen_Group_Update(groupID)
 	group.rows = TellMeWhen_Settings["Groups"][groupID]["Rows"];
 	group.columns = TellMeWhen_Settings["Groups"][groupID]["Columns"];
 	group.onlyInCombat = TellMeWhen_Settings["Groups"][groupID]["OnlyInCombat"];
-	
-	local currentSpec = GetActiveTalentGroup();
+
 	group.activePriSpec = TellMeWhen_Settings["Groups"][groupID]["PrimarySpec"];
 	group.activeSecSpec = TellMeWhen_Settings["Groups"][groupID]["SecondarySpec"];
 	group.correctspec = true
-	if (currentSpec==1 and not group.activePriSpec) or (currentSpec==2 and not group.activeSecSpec) then
-		group.genabled = false;
-		group.correctspec = false
+
+	if not TMW_MSPEC_CURRENT then
+		local currentSpec = GetActiveTalentGroup();
+		if (currentSpec==1 and not group.activePriSpec) or (currentSpec==2 and not group.activeSecSpec) then
+			group.genabled = false;
+			group.correctspec = false
+		end
 	end
+
 	if LBF then
 		TMWDONTRUN = true
 		local lbfs = TellMeWhen_Settings["Groups"][groupID]["LBF"]
@@ -598,7 +830,6 @@ function TellMeWhen_Group_Update(groupID)
 				if ( not group.genabled ) then
 					TellMeWhen_Icon_ClearScripts(icon);
 				end
-				
 			end
 		end
 		for iconID = group.rows*group.columns+1, TELLMEWHEN_MAXROWS*TELLMEWHEN_MAXROWS do
@@ -632,9 +863,9 @@ function TellMeWhen_Group_Update(groupID)
 		else
 			group.resizeButton:Show();
 		end
-		
+
 		TellMeWhen_Stance_Check(group)
-	end -- Enabled
+	end
 
 	if ( group.onlyInCombat and group.genabled and locked ) then
 		group:RegisterEvent("PLAYER_REGEN_ENABLED");
@@ -657,14 +888,10 @@ function TellMeWhen_Group_Update(groupID)
 			group:Hide();
 		end
 	end
-	
+
 	group:SetScript("OnEvent", TellMeWhen_Group_OnEvent)
 end
 
-
--- -------------
--- ICON FUNCTION
--- -------------
 TellMeWhen_ConditionIcons = {}
 
 function TellMeWhen_Icon_Update(icon, groupID, iconID)
@@ -697,9 +924,9 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 	icon.CooldownCheck		= iconSettings.CooldownCheck
 	icon.IsChakra			= nil
 	icon.ChakraActive 		= true
-	icon.Width				= icon.Width or 36 
-	icon.Height				= icon.Height or 36 
-	
+	icon.Width				= icon.Width or 36
+	icon.Height				= icon.Height or 36
+
 	TellMeWhen_Settings["Interval"] = TellMeWhen_Settings["Interval"] or TELLMEWHEN_UPDATE_INTERVAL
 	icon.updateTimer = TellMeWhen_Settings["Interval"];
 
@@ -710,15 +937,14 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 	icon.Cooldown:SetFrameLevel(icon:GetFrameLevel() + 1)
 	icon.Cooldown:SetDrawEdge(TellMeWhen_Settings["DrawEdge"])
 
-	--LBF STUFF
 	if LBF then
-		TMWDONTRUN = true -- TellMeWhen_Update() is runned in the LBF skin callback, which just causes an infinite loop. This tells it not to
+		TMWDONTRUN = true
 		local lbfs = TellMeWhen_Settings["Groups"][groupID]["LBF"]
 		LBF:Group("TellMeWhen", L["GROUP"] .. groupID):AddButton(icon);
 		local SkID = lbfs.SkinID or "Blizzard"
 		local tab = LBF:GetSkins()
 		if tab and SkID then
-			if SkID == "Blizzard" then --blizzard needs custom overlay bar sizes because of the borders, other skins might like to use this too
+			if SkID == "Blizzard" then
 				icon.Width = (tab[SkID].Icon.Width)*0.9
 				icon.Height = (tab[SkID].Icon.Height)*0.9
 			else
@@ -730,10 +956,10 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 		icon.Width = 36*0.9
 		icon.Height = 36*0.9
 	end
-	
+
 	icon:UnregisterAllEvents();
 	icon.countText:Hide();
-	
+
 	if (Conditions ~= nil and #Conditions > 0) then
 		ConditionPresent = true;
 	end
@@ -757,12 +983,11 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 				tinsert(TellMeWhen_ConditionIcons,icon:GetName())
 			end
 		end
-		-- used by both cooldown and reactive icons
 		if ( icon.CooldownShowWhen == "usable" ) then
 			icon.usableAlpha = (1 * icon.Alpha);
 			icon.unusableAlpha = (0 * icon.UnAlpha);
 		elseif ( icon.CooldownShowWhen == "unusable" ) then
-			icon.usableAlpha = (0 * icon.Alpha); --hey, you never know, multiplying by zero might become useful in the future
+			icon.usableAlpha = (0 * icon.Alpha);
 			icon.unusableAlpha = (1 * icon.UnAlpha);
 		elseif ( icon.CooldownShowWhen == "always") then
 			icon.usableAlpha = (1 * icon.Alpha);
@@ -772,7 +997,6 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 			icon.usableAlpha = (1 * icon.Alpha);
 			icon.unusableAlpha = (1 * icon.UnAlpha);
 		end
-		-- used by both buff/debuff and wpnenchant icons
 		if ( icon.BuffShowWhen == "present" ) then
 			icon.presentAlpha = (1 * icon.Alpha);
 			icon.absentAlpha = (0 * icon.UnAlpha);
@@ -782,40 +1006,31 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 		elseif ( icon.BuffShowWhen == "always") then
 			icon.presentAlpha = (1 * icon.Alpha);
 			icon.absentAlpha = (1 * icon.UnAlpha);
-			--SendChatMessage("Alpha always assigned to: "..icon.Name);
 		else
 			error("Alpha not assigned: "..icon.Name);
 			icon.presentAlpha = (1 * icon.Alpha);
 			icon.absentAlpha = (1 * icon.UnAlpha);
 		end
 
-
 		if ( icon.iconType == "cooldown" ) then
--- --------------				
--- SPELL COOLDOWN
--- --------------			
 			if ( CooldownType == "spell" ) then
 				icon.namefirst = TellMeWhen_GetSpellNames(icon,icon.Name,1)
 				icon.namename = TellMeWhen_GetSpellNames(icon,icon.Name,1,true)
-				
+
 				icon.texture:SetTexture(GetSpellTexture(icon.namefirst) or "Interface\\Icons\\INV_Misc_QuestionMark");
 				icon:SetScript("OnUpdate", TellMeWhen_Icon_SpellCooldown_OnUpdate);
 				TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
-			--	icon:RegisterEvent("PET_BAR_UPDATE");
 				icon:RegisterEvent("ACTIONBAR_UPDATE_USABLE");
 				icon:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN");
 				icon:SetScript("OnEvent", TellMeWhen_Icon_SpellCooldown_OnEvent);
 				TellMeWhen_Icon_StatusCheck(icon, icon.iconType, CooldownType);
--- --------------				
--- ITEM COOLDOWN
--- --------------					
 			elseif ( CooldownType == "item" ) then
 				icon.namefirst = TellMeWhen_GetItemIDs(icon,icon.Name,1)
 				icon.ShowPBar = false;
 				icon.powerbar:Hide();
 				TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
 				if not icon.namefirst then
-					return  --silently error, this will be recalled again and everything should be fine.
+					return
 				end
 				local itemName, itemLink, _, _, _, _, _, _, _, itemTexture = GetItemInfo(icon.namefirst)
 				icon:SetScript("OnUpdate", TellMeWhen_Icon_ItemCooldown_OnUpdate)
@@ -835,9 +1050,6 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 			end
 			icon.Cooldown:SetReverse(false);
 			TellMeWhen_Icon_StatusCheck(icon, icon.iconType, CooldownType);
--- --------------				
--- BUFF
--- --------------
 		elseif ( icon.iconType == "buff" ) then
 			icon.namefirst = TellMeWhen_GetSpellNames(icon,icon.Name,1)
 			icon.namename = TellMeWhen_GetSpellNames(icon,icon.Name,1,1)
@@ -857,9 +1069,6 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 			end
 			icon.Cooldown:SetReverse(true);
 			TellMeWhen_Icon_StatusCheck(icon, icon.iconType);
--- --------------				
--- REACTIVE
--- --------------
 		elseif ( icon.iconType == "reactive" ) then
 			icon.namefirst = TellMeWhen_GetSpellNames(icon,icon.Name,1)
 			icon.namename = TellMeWhen_GetSpellNames(icon,icon.Name,1,true)
@@ -873,21 +1082,16 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 				icon.learnedTexture = false;
 				icon.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark");
 			end
-		--	icon:RegisterEvent("PET_BAR_UPDATE");
 			icon:RegisterEvent("ACTIONBAR_UPDATE_USABLE");
 			icon:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN");
 			icon:SetScript("OnEvent", TellMeWhen_Icon_SpellCooldown_OnEvent);
 			TellMeWhen_Icon_StatusCheck(icon, icon.iconType);
 
-		
--- --------------				
--- WEP ENCHANT
--- --------------	
-		elseif ( icon.iconType == "wpnenchant" ) then	
+		elseif ( icon.iconType == "wpnenchant" ) then
 			icon.namefirst = TellMeWhen_GetSpellNames(icon,icon.Name,1)
-			
+
 			icon.ShowPBar = false;
-			icon.ShowCBar = false;			
+			icon.ShowCBar = false;
 			TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
 			icon:RegisterEvent("UNIT_INVENTORY_CHANGED");
 			local slotID;
@@ -906,19 +1110,15 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 				TellMeWhen_Icon_ClearScripts(icon);
 				icon.texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark");
 			end
-	
--- --------------				
--- TOTEM
--- --------------	
+
 		elseif ( icon.iconType == "totem" ) then
 			icon.namefirst = TellMeWhen_GetSpellNames(icon,icon.Name,1)
 			icon.namename = TellMeWhen_GetSpellNames(icon,icon.Name,1,true)
 			icon.namelist = TellMeWhen_GetSpellNames(icon,icon.Name)
-		
+
 			icon.ShowPBar = false;
 			TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
-		
-		
+
 			icon:SetScript("OnUpdate", TellMeWhen_Icon_Totem_OnUpdate);
 			TellMeWhen_Icon_Totem_OnUpdate(icon);
 			if ( icon.Name == "" ) then
@@ -941,14 +1141,10 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 				icon.texture:SetTexture(nil);
 			end
 		end
-	end -- Enabled CHECK
+	end
 
-	
 	icon.Cooldown:Hide();
 
-
-	
-	
 	if ( Enabled ) then
 		icon:SetAlpha(1.0);
 	else
@@ -970,8 +1166,6 @@ function TellMeWhen_Icon_Update(icon, groupID, iconID)
 		icon.powerbar:SetValue(0);
 		icon.cooldownbar:SetValue(0);
 		icon.powerbar:SetAlpha(.9)
-
-	
 	else
 		if ( not icon.texture:GetTexture() ) then
 			icon:EnableDrawLayer("BACKGROUND")
@@ -1002,11 +1196,7 @@ function TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
 	if icon.ShowPBar or icon.ShowCBar then
 		local groupName = "TellMeWhen_Group"..groupID;
 		local iconName = groupName.."_Icon"..iconID;
-		local genabled = TellMeWhen_Settings["Groups"][groupID]["Enabled"];
-		local locked = TellMeWhen_Settings["Locked"];
-		local onlyInCombat = TellMeWhen_Settings["Groups"][groupID]["OnlyInCombat"];
 		local width, height = icon:GetSize()
-		local scale = TellMeWhen_Settings["Groups"][groupID]["Scale"];
 		if not TellMeWhen_Settings["Texture"] then
 			TellMeWhen_Settings["Texture"] = "Interface\\TargetingFrame\\UI-StatusBar";
 		end
@@ -1022,7 +1212,7 @@ function TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
 				icon.powerbar = CreateFrame("StatusBar",powerbarname,icon)
 			end
 			icon.powerbar:SetSize(width*(icon.Width/36), ((height / 2)*(icon.Height/36))-0.5);
-			icon.powerbar:SetPoint("BOTTOM",icon,"CENTER",0,0.5)--(((height/2)*(icon.Height/36))-(icon.cooldownbar:GetHeight() )));
+			icon.powerbar:SetPoint("BOTTOM",icon,"CENTER",0,0.5)
 			if cost then
 				icon.powerbar:SetMinMaxValues(0, cost);
 			end
@@ -1041,7 +1231,7 @@ function TellMeWhen_Icon_Bars_Update(icon, groupID, iconID)
 			local cooldownbarname = iconName.."_CooldownBar";
 			icon.cooldownbar = icon.cooldownbar or CreateFrame("StatusBar",cooldownbarname,icon);
 			icon.cooldownbar:SetSize(width*(icon.Width/36), ((height / 2)*(icon.Height/36))-0.5);
-			icon.cooldownbar:SetPoint("TOP",icon,"CENTER",0,-0.5)---(((height/2)*(icon.Height/36))-(icon.cooldownbar:GetHeight() )));
+			icon.cooldownbar:SetPoint("TOP",icon,"CENTER",0,-0.5)
 			icon.cooldownbar.texture = icon.cooldownbar.texture or icon.cooldownbar:CreateTexture();
 			icon.cooldownbar.texture:SetTexture(tex);
 			icon.cooldownbar:SetStatusBarTexture(icon.cooldownbar.texture);
@@ -1084,14 +1274,12 @@ end
 local function ConditionCheck(icon)
 	local retCode = true;
 	for i=1,#icon.conditions do
-		retCode = TMW_AO[icon.conditions[i].ConditionAndOr](retCode,TMW_CNDT[icon.conditions[i].ConditionType](icon.conditions[i])) -- have fun figuring this one out
+		retCode = TMW_AO[icon.conditions[i].ConditionAndOr](retCode,TMW_CNDT[icon.conditions[i].ConditionType](icon.conditions[i]))
 	end
 	return retCode;
 end
 
 function TellMeWhen_Icon_StatusCheck(icon, iconType, CooldownType)
-	-- this function is so OnEvent-based icons can do a check when the addon is locked
-	-- the 1s trick it into thinking that it has been a long time since the last onupdate and so it will run the whole function.
 	if ( iconType == "reactive" ) then
 		TellMeWhen_Icon_Reactive_OnUpdate(icon,1)
 	elseif ( iconType == "buff" ) then
@@ -1130,7 +1318,6 @@ local function CDBarUpdate(icon,startTime,duration,buff)
 			)
 		end
 	else
-		--inverted
 		if (duration == 0) then
 			icon.cooldownbar:SetMinMaxValues(0,  1)
 			icon.cooldownbar:SetValue(1)
@@ -1157,10 +1344,10 @@ local function PwrUpdate(icon,name)
 	icon.powerbar:SetMinMaxValues(0, cost);
 	if not icon.InvertBars then
 		icon.powerbar:SetValue(cost - UnitPower("player",powerType))
-		icon.powerbar.texture:SetTexCoord(0, max(0,min(((cost - UnitPower("player",powerType)) / cost),1)), 0, 1) --more cheats
+		icon.powerbar.texture:SetTexCoord(0, max(0,min(((cost - UnitPower("player",powerType)) / cost),1)), 0, 1)
 	else
 		icon.powerbar:SetValue(UnitPower("player",powerType))
-		icon.powerbar.texture:SetTexCoord(0, max(0,min((UnitPower("player",powerType) / cost),1)), 0, 1)			--more cheats
+		icon.powerbar.texture:SetTexCoord(0, max(0,min((UnitPower("player",powerType) / cost),1)), 0, 1)
 	end
 end
 
@@ -1171,7 +1358,7 @@ function TellMeWhen_Icon_SpellCooldown_OnEvent(icon)
 		CooldownFrame_SetTimer(icon.Cooldown, startTime, duration, 1);
 	end
 end
-	
+
 function TellMeWhen_Icon_SpellCooldown_OnUpdate(icon, elapsed)
 	icon.updateTimer = icon.updateTimer - elapsed;
 	local name = icon.namefirst
@@ -1191,7 +1378,7 @@ function TellMeWhen_Icon_SpellCooldown_OnUpdate(icon, elapsed)
 		end
 		if ( icon.updateTimer <= 0 ) then
 			icon.updateTimer = TellMeWhen_Settings["Interval"];
-			
+
 			local reaction
 			if not (icon.UnitReact == 0) then
 				reaction = Reaction("target");
@@ -1214,7 +1401,7 @@ function TellMeWhen_Icon_SpellCooldown_OnUpdate(icon, elapsed)
 				if not icon.ManaCheck then
 					nomana = nil
 				end
-				
+
 				if ( (duration == 0 or OnGCD) and inrange == 1 and not nomana and icon.ChakraActive) then
 					icon.texture:SetVertexColor(1, 1, 1, 1);
 					icon:SetAlpha(icon.usableAlpha);
@@ -1317,21 +1504,21 @@ function TellMeWhen_Icon_Buff_OnUpdate(icon, elapsed)
 	if not (icon.UnitReact == 0) then
 		reaction = Reaction(icon.Unit);
 	end
-	if (icon.UnitReact == 0) or (icon.UnitReact == reaction) then 
+	if (icon.UnitReact == 0) or (icon.UnitReact == reaction) then
 		if ( icon.conditionPresent and not ConditionCheck(icon) ) then
 			icon:SetAlpha(0);
 			icon.CondtShown = icon:GetAlpha()
 			return;
 		end
 		for i, iName in ipairs(icon.namelist) do
-			if tonumber(iName) then -- UnitAura requires a spell name, numbers are treated as an aura index on the unit instead of IDs.
+			if tonumber(iName) then
 				iNamen = GetSpellInfo(iName);
 			else
 				iNamen = iName;
 			end
 			local buffName, _, iconTexture, count, _, duration, expirationTime = UnitAura(icon.Unit, iNamen, nil, icon.filter);
 			if TellMeWhen_DSN[iName] then
-				for z=1,60 do --60 because i can and it breaks when there are no more buffs anyway
+				for z=1,60 do
 					buffName, _, iconTexture, count, _, duration, expirationTime,_,_,_,id = UnitAura(icon.Unit, z, icon.filter);
 					if (not id) or (id == iName) then
 						break;
@@ -1357,7 +1544,7 @@ function TellMeWhen_Icon_Buff_OnUpdate(icon, elapsed)
 					icon.learnedTexture = true;
 				end
 				icon:SetAlpha(icon.presentAlpha);
-				
+
 				if ( icon.presentAlpha~= 0 ) and ( icon.absentAlpha~= 0) then
 					icon.texture:SetVertexColor(pr.r, pr.g, pr.b, 1);
 				else
@@ -1376,10 +1563,10 @@ function TellMeWhen_Icon_Buff_OnUpdate(icon, elapsed)
 				end
 				return;
 			end
-		end						
+		end
 
 		icon.cooldownbar:SetValue(-1)
-		
+
 		icon:SetAlpha(icon.absentAlpha);
 		if ( icon.presentAlpha~= 0 ) and ( icon.absentAlpha~= 0) then
 			icon.texture:SetVertexColor(ab.r, ab.g, ab.b, 1);
@@ -1629,8 +1816,6 @@ function TellMeWhen_Icon_Totem_OnUpdate(icon, elapsed)
 	end
 end
 
-
-
 do
 	TMW_CNDT.HEALTH = function(condition)
 		local percent = 100 * UnitHealth(condition.ConditionUnit)/UnitHealthMax(condition.ConditionUnit);
@@ -1695,8 +1880,7 @@ do
 	TMW_CNDT.ALIVE = function(condition)
 		return not UnitIsDeadOrGhost(condition.ConditionUnit)
 	end
-	
-	
+
 	TMW_OP["=="] = function(level, percent)
 		return percent == level;
 	end
@@ -1715,7 +1899,7 @@ do
 	TMW_OP["~="] = function(level, percent)
 		return percent ~= level;
 	end
-	
+
 	TMW_AO["OR"] = function(old,new)
 		return (old or new)
 	end
@@ -1723,7 +1907,6 @@ do
 		return (old and new)
 	end
 end
-
 
 function TellMeWhen_GetSpellNames(icon,buffName,firstOnly,toname)
 	local buffNames = {}
@@ -1775,7 +1958,7 @@ function TellMeWhen_SpaceRemove(str)
 	local beg = strfind(str, "^ ")
 	local last = strfind(str, " $")
 	if (not beg) and (not last) then
-		return str 
+		return str
 	else
 		return TellMeWhen_SpaceRemove(str)
 	end
@@ -1783,13 +1966,12 @@ end
 
 function TellMeWhen_SplitNames(buffName,convertIDs)
 	local buffNames = {}
-	-- If buffName contains one or more semicolons, split the list into parts
 	if (buffName:find(";") ~= nil) then
 		buffNames = { strsplit(";", buffName) }
 	else
 		buffNames = { buffName }
 	end
-	for a,b in pairs(buffNames) do --remove spaces from the beginning and end of each name
+	for a,b in pairs(buffNames) do
 		local new = strtrim(tostring(b)) or error("Error removing spaces from:" .. a .. ":" .. b ..":.")
 		buffNames[a] = tonumber(new) or tostring(new)
 	end
@@ -1809,9 +1991,8 @@ function TellMeWhen_SplitNames(buffName,convertIDs)
 end
 
 function TellMeWhen_SkinCallback(arg, SkinID, Gloss, Backdrop, Group, Button, Colors)
-	
 	if Group and SkinID then
-		local groupID = tonumber(strmatch(Group,"%d+")) --Group is a string like "Group 5", so cant use :GetID()
+		local groupID = tonumber(strmatch(Group,"%d+"))
 		TellMeWhen_Settings["Groups"][groupID]["LBF"]["SkinID"] = SkinID
 		TellMeWhen_Settings["Groups"][groupID]["LBF"]["Gloss"] = Gloss
 		TellMeWhen_Settings["Groups"][groupID]["LBF"]["Backdrop"] = Backdrop
@@ -1823,17 +2004,3 @@ function TellMeWhen_SkinCallback(arg, SkinID, Gloss, Backdrop, Group, Button, Co
 		TMWDONTRUN = false
 	end
 end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
