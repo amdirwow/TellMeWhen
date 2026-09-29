@@ -35,6 +35,7 @@ local _,pclass = UnitClass("Player")
 local st, co, rc, mc, us, un, pr, ab, defaultSpell
 local defaultSpells,chakra,TMW_CNDT,TMW_OP,TMW_AO = {},{},{},{},{}
 local blacklistevent = 0
+local varsloaded = false
 
 local TMW_MSPEC_PREFIX = "MSPEC"
 local TMW_MSPEC_CURRENT = nil
@@ -375,7 +376,9 @@ TMW_BE = {
 };
 
 function TellMeWhen_OnEvent(self, event,...)
-	if ( event == 'VARIABLES_LOADED' ) then
+	if ( event == "ADDON_LOADED" ) or ( event == 'VARIABLES_LOADED' ) then
+		if ( event == "ADDON_LOADED" and ... ~= "TellMeWhen" ) or varsloaded then return end
+		varsloaded = true
 		TellMeWhen_VarsLoaded()
 	elseif ( event == "PLAYER_LOGIN" ) or ( event == "PLAYER_ENTERING_WORLD" ) then
 		self:RegisterEvent("PLAYER_TALENT_UPDATE");
@@ -664,6 +667,7 @@ function TellMeWhen_ColorUpdate()
 end
 
 function TellMeWhen_Update()
+	if not TellMeWhen_Settings then return end
 	TellMeWhen_ColorUpdate()
 	TELLMEWHEN_ICONSPACING = TellMeWhen_Settings["Spacing"] or TELLMEWHEN_ICONSPACING
 	for groupID = 1, TELLMEWHEN_MAXGROUPS do
@@ -702,6 +706,7 @@ do
 
 	local executiveFrame = CreateFrame("Frame", "TellMeWhen_ExecutiveFrame");
 	executiveFrame:SetScript("OnEvent", TellMeWhen_OnEvent);
+	executiveFrame:RegisterEvent("ADDON_LOADED");
 	executiveFrame:RegisterEvent("VARIABLES_LOADED");
 	executiveFrame:RegisterEvent("PLAYER_LOGIN");
 	executiveFrame:RegisterEvent("PLAYER_ENTERING_WORLD");
